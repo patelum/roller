@@ -9,16 +9,27 @@ build:
   tool: maven                  # maven | gradle
   # Full build: unit tests, integration tests, static checks. Run once at the end.
   verify: mvn -q verify
-  # Fast, scoped build for one module. {module} = a module name from modules: below
-  # (multi-module build: the Maven artifactId / Gradle project; single-module build: a package folder name).
-  # Multi-module Maven (installer default when the root pom has <modules>):
-  verify_module: mvn -q -pl {module} -am verify
+  # Fast, scoped build for one LOGICAL module of `app` (one Maven module, split by package).
+  # Mapping: logical module (modules: below) -> its `paths:` -> surefire -Dtest patterns.
+  #   {module}  = a logical module name from modules: below.
+  #   {tests}   = comma-separated surefire patterns built from the module's paths under
+  #               app/src/test/java/ ONLY (main paths are for locating code, not for tests):
+  #                 - directory  app/src/test/java/org/apache/roller/weblogger/pojos
+  #                   -> org/apache/roller/weblogger/pojos/**
+  #                 - file       app/src/test/java/org/apache/roller/weblogger/ui/UIPluginManagerTest.java
+  #                   -> org/apache/roller/weblogger/ui/UIPluginManagerTest
+  #               i.e. strip everything up to and including `java/`, append `/**` for a dir or drop `.java`
+  #               for a file, join with commas. Do NOT prefix with `**/` - with a full package path
+  #               surefire then matches 0 tests (verified: `**/org/apache/roller/util/**` ran 0 tests,
+  #               `org/apache/roller/util/**` ran 5).
+  #   Example (util-config): -Dtest='org/apache/roller/util/**,org/apache/roller/testing/**,org/apache/roller/weblogger/util/**'
+  # Fast (tests only, no WAR packaging, no integration phase). `verify` (full, below) is still the final gate.
+  verify_module: mvn -q -pl app -am test -Dtest='{tests}' -Dsurefire.failIfNoSpecifiedTests=false
+  # db-utils is a real Maven module (no logical split): mvn -q -pl db-utils -am verify
   # Single test class or pattern, for tight loops. {test} = class name, FQN or surefire pattern.
   test_one: mvn -q -Dtest={test} -Dsurefire.failIfNoSpecifiedTests=false test
   # Formatter. Leave empty if the project has none.
   format: ""                   # e.g. mvn -q spotless:apply   or   mvn -q spring-javaformat:apply
-  # Single-module Maven (installer default when the root pom has no <modules>): scope tests by package folder.
-  #   verify_module: mvn -q test -Djacoco.skip=true -Dsurefire.failIfNoSpecifiedTests=false -Dtest='**/{module}/**'
   # Gradle multi-project:
   #   verify: ./gradlew check
   #   verify_module: ./gradlew :{module}:check
@@ -50,11 +61,57 @@ protect:
   - "**/src/main/resources/db/migration/**"   # applied migrations are immutable; add new ones instead
   - "**/src/main/resources/db/changelog/**"
   - ".github/workflows/**"
+  - "**/src/main/resources/sql/**"            # Velocity migration scripts (*-to-*-migration.vm, createdb.vm); add new ones instead
 
-# Optional: map logical modules to source roots for single-module builds.
-# Filled in by the context setup step. Maven multi-module builds usually need nothing here.
-modules: {}
-#  billing:
-#    paths: [src/main/java/com/acme/billing]
-#  orders:
-#    paths: [src/main/java/com/acme/orders]
+# Logical modules of `app` (single Maven module roller-webapp), by package under org.apache.roller.
+# Every main package belongs to exactly one module. Paths are repo-relative; a path may be a
+# directory (whole package tree) or a single .java file (package-root classes). Test patterns for
+# verify_module come from the app/src/test/java entries only (see build.verify_module).
+# `db-utils` is a separate Maven module and is not listed here (use -pl db-utils -am verify).
+# Module -> context: .ai-sdlc/context/modules/<name>.md
+modules:
+  weblogger-business:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/business
+      - app/src/test/java/org/apache/roller/weblogger/business
+      - app/src/test/java/org/apache/roller/weblogger/TestUtils.java   # shared DB test helper, no tests of its own
+  weblogger-pojos:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/pojos
+      - app/src/test/java/org/apache/roller/weblogger/pojos
+  util-config:
+    paths:
+      - app/src/main/java/org/apache/roller/util
+      - app/src/main/java/org/apache/roller/RollerException.java
+      - app/src/main/java/org/apache/roller/weblogger/WebloggerException.java
+      - app/src/main/java/org/apache/roller/weblogger/config
+      - app/src/main/java/org/apache/roller/weblogger/util
+      - app/src/test/java/org/apache/roller/util
+      - app/src/test/java/org/apache/roller/testing
+      - app/src/test/java/org/apache/roller/weblogger/util
+  ui-core:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/ui/core
+      - app/src/main/java/org/apache/roller/weblogger/ui/tags
+      - app/src/test/java/org/apache/roller/weblogger/ui/core
+      - app/src/test/java/org/apache/roller/weblogger/ui/ApplicationResourcesTest.java
+      - app/src/test/java/org/apache/roller/weblogger/ui/EntryEditorAssetsTest.java
+      - app/src/test/java/org/apache/roller/weblogger/ui/UIPluginManagerTest.java
+  ui-rendering:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/ui/rendering
+      - app/src/test/java/org/apache/roller/weblogger/ui/rendering
+  ui-struts2:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/ui/struts2
+      - app/src/test/java/org/apache/roller/weblogger/ui/struts2
+  webservices:
+    paths:
+      - app/src/main/java/org/apache/roller/weblogger/webservices
+      - app/src/test/java/org/apache/roller/weblogger/webservices
+  planet:
+    paths:
+      - app/src/main/java/org/apache/roller/planet
+      - app/src/main/java/org/apache/roller/weblogger/planet
+      - app/src/test/java/org/apache/roller/planet
+      - app/src/test/java/org/apache/roller/weblogger/planet
