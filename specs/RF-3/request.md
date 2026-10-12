@@ -1,0 +1,3 @@
+refactor: RF-3 Split HTML helpers out of Utilities.
+weblogger/util/Utilities.java is a 1100-line grab-bag. Move the HTML and text-truncation helpers (escapeHTML, unescapeHTML, removeHTML, removeAndEscapeHTML, autoformat, addNofollow, truncate, truncateNicely, truncateText, extractHTML, transformToHTMLSubset and any private helpers only they use) into a new class in the same package, e.g. HtmlUtilities.
+Keep every existing public method on Utilities as a @Deprecated one-line delegate so no caller, plugin or Velocity template breaks. No behaviour change. Callers do not need to be migrated in this ticket.
